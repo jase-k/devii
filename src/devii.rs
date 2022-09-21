@@ -28,15 +28,19 @@ struct DeviiRoutes {
 pub struct DeviiClientOptions {
     login: String,
     tenantid: u32,
-    password: String
+    password: String,
+
+    #[serde(skip_serializing)]
+    base: String
 }
 
 impl DeviiClientOptions {
-    pub fn new(login: String, password: String) -> Self {
+    pub fn new(login: String, password: String, base: String) -> Self {
         DeviiClientOptions {
             login: login,
             tenantid: 13,
-            password: password
+            password: password,
+            base: base
         }
     }
 }
@@ -48,26 +52,28 @@ pub struct DeviiQueryOptions {
 
 impl GraphQLQuery for DeviiQueryOptions{}
 
-#[derive(Serialize, Debug)]
-pub struct DeviiQueryInsertOptions<T: Serialize + DeserializeOwned> {
+#[derive(Serialize, Debug, Deserialize)]
+pub struct DeviiQueryInsertOptions<T: Serialize> {
     pub query: String,
+    // Docs: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "T: Deserialize<'de>"))]
     pub variables: Insert<T>
 }
-impl <T: Serialize + DeserializeOwned>DeserializeOwned for DeviiQueryInsertOptions<T>{}
-impl <T: Serialize + DeserializeOwned>DeserializeOwned for Insert<T>{}
 
-#[derive(Serialize, Debug)]
-pub struct Insert<T: Serialize + DeserializeOwned> {
+#[derive(Serialize, Debug, Deserialize)]
+pub struct Insert<T: Serialize> {
+    // Docs: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "T: Deserialize<'de>"))]
     input: T
 }
 
-impl <T>GraphQLQuery for DeviiQueryInsertOptions<T>{}
+impl <T: DeserializeOwned + Serialize>GraphQLQuery for DeviiQueryInsertOptions<T>{}
 
 
 impl DeviiClient {
     pub async fn connect(options: DeviiClientOptions) -> Result<Self, Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
-        let res = client.post("https://devii-experimental.centralus.cloudapp.azure.com/auth")
+        let res = client.post(format!("{}/auth", options.base))
             .json(&options)
             .send()
             .await?
@@ -137,30 +143,53 @@ pub struct DeviiBlockChainStats {
     date_range_end: f64,
 }
 
-// impl DeviiBlockChainStats {
-//     pub fn to_blockchain_stat(&self) -> BlockChainStats {
-//         BlockChainStats::new(
-//             self.blockchain_name.clone(),
-//             self.id.clone().unwrap(),
-//             self.short_description.clone(),
-//             self.time_offset as u32, // seconds
-//             self.total_active_coins,
-//             self.total_coin_issuance,
-//             self.block_height as u32,
-//             self.active_addresses as u32,
-//             self.last_updated as u32,
-//             self.stat_type.clone(),
-//             self.block_range_start as u32,
-//             self.block_range_end as u32,
-//             self.date_range_start as u32,
-//             self.date_range_end as u32,
-//         )
-//     }
-// }
-
 pub trait DeviiQueryResultType{}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeviiQueryResult<T> {
     pub data: HashMap<String, T>
+}
+
+// cargo test foo -- --test-threads 3
+
+#[cfg(test)]
+mod tests {
+    use dotenv;
+    use crate::devii::DeviiClient;
+    use crate::devii::DeviiClientOptions;
+
+    #[test]
+    fn client_connect() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+
+        let client = tokio_test::block_on(DeviiClient::connect(options));
+
+        if let Ok(_) = client {
+            assert!(true);
+        }
+        if let Err(e) = client {
+            println!("Connection Failed to Devii \n\n {:?}", e);
+            assert!(false);
+        }
+    }
+    #[test]
+    fn client_connect_returns_query_url() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+
+        let client_result = tokio_test::block_on(DeviiClient::connect(options));
+
+        if let Ok(res) = client_result {
+            assert_eq!(res.routes.query, format!("{}/jase/query",dotenv::var("DEVII_BASE_URL").unwrap()));
+        }
+    }
 }

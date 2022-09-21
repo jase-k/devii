@@ -45,20 +45,29 @@ impl DeviiClientOptions {
 pub struct DeviiQueryOptions {
     pub query: String
 }
+
 impl GraphQLQuery for DeviiQueryOptions{}
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DeviiQueryInsertOptions {
+#[derive(Serialize, Debug)]
+pub struct DeviiQueryInsertOptions<T: Serialize + DeserializeOwned> {
     pub query: String,
-    pub variables: String
+    pub variables: Insert<T>
 }
-impl GraphQLQuery for DeviiQueryInsertOptions{}
+impl <T: Serialize + DeserializeOwned>DeserializeOwned for DeviiQueryInsertOptions<T>{}
+impl <T: Serialize + DeserializeOwned>DeserializeOwned for Insert<T>{}
+
+#[derive(Serialize, Debug)]
+pub struct Insert<T: Serialize + DeserializeOwned> {
+    input: T
+}
+
+impl <T>GraphQLQuery for DeviiQueryInsertOptions<T>{}
 
 
 impl DeviiClient {
     pub async fn connect(options: DeviiClientOptions) -> Result<Self, Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
-        let res = client.post("https://pxdbdev.devii.io/auth")
+        let res = client.post("https://devii-experimental.centralus.cloudapp.azure.com/auth")
             .json(&options)
             .send()
             .await?
@@ -128,26 +137,26 @@ pub struct DeviiBlockChainStats {
     date_range_end: f64,
 }
 
-impl DeviiBlockChainStats {
-    pub fn to_blockchain_stat(&self) -> BlockChainStats {
-        BlockChainStats::new(
-            self.blockchain_name.clone(),
-            self.id.clone().unwrap(),
-            self.short_description.clone(),
-            self.time_offset as u32, // seconds
-            self.total_active_coins,
-            self.total_coin_issuance,
-            self.block_height as u32,
-            self.active_addresses as u32,
-            self.last_updated as u32,
-            self.stat_type.clone(),
-            self.block_range_start as u32,
-            self.block_range_end as u32,
-            self.date_range_start as u32,
-            self.date_range_end as u32,
-        )
-    }
-}
+// impl DeviiBlockChainStats {
+//     pub fn to_blockchain_stat(&self) -> BlockChainStats {
+//         BlockChainStats::new(
+//             self.blockchain_name.clone(),
+//             self.id.clone().unwrap(),
+//             self.short_description.clone(),
+//             self.time_offset as u32, // seconds
+//             self.total_active_coins,
+//             self.total_coin_issuance,
+//             self.block_height as u32,
+//             self.active_addresses as u32,
+//             self.last_updated as u32,
+//             self.stat_type.clone(),
+//             self.block_range_start as u32,
+//             self.block_range_end as u32,
+//             self.date_range_start as u32,
+//             self.date_range_end as u32,
+//         )
+//     }
+// }
 
 pub trait DeviiQueryResultType{}
 

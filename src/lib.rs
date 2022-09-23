@@ -1,4 +1,5 @@
-pub  mod devii;
+pub mod devii;
+mod test_struct;
 
 #[cfg(test)]
 mod tests {

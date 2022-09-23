@@ -2,8 +2,9 @@ use reqwest;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-
-use blockchain_types::common::blockchain::{BlockChainStats, BlockChainNames, BlockChainStatType};
+// use named_type_derive::*;
+use named_type::NamedType;
+use convert_case::{Case, Casing};
 
 
 pub trait GraphQLQuery{}
@@ -73,6 +74,13 @@ impl <T: DeserializeOwned + Serialize>GraphQLQuery for DeviiQueryInsertOptions<T
 impl DeviiClient {
     pub async fn connect(options: DeviiClientOptions) -> Result<Self, Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
+        // println!("Connection Result {:?}", client.post(format!("{}/auth", options.base))
+        // .json(&options)
+        // .send()
+        // .await?
+        // .text()
+        // .await?);
+
         let res = client.post(format!("{}/auth", options.base))
             .json(&options)
             .send()
@@ -82,7 +90,8 @@ impl DeviiClient {
 
         Ok(res)
     }
-    
+
+    // Type T has to be DeserializedOwned as required by .json<> when deserializing the result into a Rust Struct
     pub async fn query<T: DeserializeOwned, K : GraphQLQuery + Serialize>(&self, options: K) -> Result<T, Box< dyn std::error::Error>>
     {
         let client = reqwest::Client::new();
@@ -94,12 +103,12 @@ impl DeviiClient {
         let execute_result = client.execute(res)
         .await?;
 
-        println!("Request: {:?}", client.post(&self.routes.query)
-        .header("Authorization", format!("Bearer {}", self.access_token))
-        .json(&options)
-        .send()
-        .await?
-        .text().await);
+        // println!("Request: {:?}", client.post(&self.routes.query)
+        // .header("Authorization", format!("Bearer {}", self.access_token))
+        // .json(&options)
+        // .send()
+        // .await?
+        // .text().await);
         
         let result = execute_result    
             .json::<T>()
@@ -107,40 +116,36 @@ impl DeviiClient {
 
         Ok(result)
     }
-}
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct UpdateChainStats {
-    pub query: String,
-    pub variables: String
-}
+    // returns id -> BigSerial Type needed in Postgres column
+    pub async fn insert<T: DeserializeOwned + Serialize + NamedType>(&self, object: T) -> Result<u64, Box<dyn std::error::Error>> {
+        // create query. 
+        let insert = Insert {
+            input : object
+        };
 
-impl GraphQLQuery for UpdateChainStats{}
+        let snake_type = T::short_type_name().to_case(Case::Snake);
 
-#[derive(Serialize, Deserialize, Debug)]
-struct UpdateChainStatsVariables {
-    id: u32,
-    input: DeviiBlockChainStats
-}
+        let query_string = format!("mutation insert ($input: {}Input){{
+            create_{} (input: $input){{
+              id
+            }}
+          }}",
+          snake_type,
+          snake_type
+        );
 
-// Temporary until Devii fixes it's typing
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DeviiBlockChainStats {
-    #[serde(skip_serializing)]
-    id: Option<String>,
-    pub blockchain_name: BlockChainNames,
-    short_description: String,
-    time_offset: f64, // seconds
-    total_active_coins: f64,
-    total_coin_issuance: f64,
-    block_height: f64,
-    active_addresses: f64,
-    last_updated: f64,
-    stat_type: BlockChainStatType,
-    block_range_start: f64,
-    block_range_end: f64,
-    date_range_start: f64,
-    date_range_end: f64,
+        let query = DeviiQueryInsertOptions{ 
+            query: query_string,
+            variables: insert
+        };
+
+        let mut result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryInsertOptions<T>>(query).await?;
+
+        let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
+        
+        Ok(id_from_insert.id.parse::<u64>().unwrap())
+    }
 }
 
 pub trait DeviiQueryResultType{}
@@ -150,6 +155,12 @@ pub struct DeviiQueryResult<T> {
     pub data: HashMap<String, T>
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct InsertIdResult {
+    // Result comes back from devii as a string but should be a bigserial number
+    id: String
+}
+
 // cargo test foo -- --test-threads 3
 
 #[cfg(test)]
@@ -157,7 +168,9 @@ mod tests {
     use dotenv;
     use crate::devii::DeviiClient;
     use crate::devii::DeviiClientOptions;
+    use crate::test_struct::TestStruct;
 
+    // May be flaky? 
     #[test]
     fn client_connect() {
         let options = DeviiClientOptions {
@@ -177,6 +190,7 @@ mod tests {
             assert!(false);
         }
     }
+    
     #[test]
     fn client_connect_returns_query_url() {
         let options = DeviiClientOptions {
@@ -190,6 +204,51 @@ mod tests {
 
         if let Ok(res) = client_result {
             assert_eq!(res.routes.query, format!("{}/jase/query",dotenv::var("DEVII_BASE_URL").unwrap()));
+        } else {
+            assert!(false);
         }
+    }
+    
+    #[test]
+    fn insert_struct_test() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+        
+        let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
+        
+        let result = tokio_test::block_on(client.insert(TestStruct::new()));
+        
+        if let Ok(_) = result {
+            assert!(true)
+        } else {
+            println!("{:?}", result);
+            assert!(false)
+        }
+
+    }
+    #[test]
+    fn insert_struct_min_test() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+        
+        let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
+        
+        let result = tokio_test::block_on(client.insert(TestStruct::new_min()));
+        
+        if let Ok(_) = result {
+            assert!(true)
+        } else {
+            println!("{:?}", result);
+            assert!(false)
+        }
+
     }
 }

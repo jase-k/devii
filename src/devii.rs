@@ -2,7 +2,6 @@ use reqwest;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-// use named_type_derive::*;
 use named_type::NamedType;
 use convert_case::{Case, Casing};
 

@@ -1,7 +1,13 @@
 [package]
 name = "devii"
-version = "0.1.0"
+description = "Devii Connection so you can easily Insert, Update, Query, and Delete complex structs into your Devii Database (PostGres)"
+version = "0.0.1"
 edition = "2021"
+documentation = "https://github.com/jase-k/devii"
+homepage = "https://github.com/jase-k/devii"
+repository = "https://github.com/jase-k/devii"
+license = "MIT"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -191,7 +191,7 @@ impl DeviiClient {
             
           }}",
           snake_type,
-          parse_value(&serde_json::to_value(T::default()).unwrap()) 
+          parse_value(&serde_json::to_value(T::default()).unwrap(), Some("id".to_string())) 
         );
         let fetch_variables = FetchOptionsBuilder::default().filter(format!("id = {}", id)).build().unwrap();
         
@@ -227,7 +227,7 @@ impl DeviiClient {
          }}",
           snake_type,
           snake_type,
-          parse_value(&serde_json::to_value(T::default()).unwrap())
+          parse_value(&serde_json::to_value(T::default()).unwrap(), Some("id".to_string()))
         );
 
         let query = DeviiQueryUpdateOptions{ 
@@ -256,9 +256,14 @@ struct InsertIdResult {
     id: String
 }
 
-fn parse_value(value: &Value) -> String {
+fn parse_value(value: &Value, additional_fields: Option<String>) -> String {
+    let mut additional_field_string = "".to_string(); 
+
+    if let Some(s) = additional_fields {
+        additional_field_string = format!("{},", s);
+    }
     match value {
-        Value::Object(map) => { return ["{", parse_object(&map).as_str(), "}"].join("") },
+        Value::Object(map) => { return ["{", additional_field_string.as_str(), parse_object(&map).as_str(), "}"].join("") },
         Value::Array(vec) => { return [ "{", parse_array(&vec).as_str(), "}"].join("") },
         _ =>  return "".to_string()
     }
@@ -277,7 +282,7 @@ fn parse_object(map: &Map<String, Value>) -> String {
                 first = false;
 
                 map_vals.push(i.to_string());
-                map_vals.push(parse_value(value));
+                map_vals.push(parse_value(value, None));
             }
         }
     map_vals.join("")
@@ -288,7 +293,7 @@ fn parse_object(map: &Map<String, Value>) -> String {
 fn parse_array(vec: &Vec<Value> ) -> String {
     let vec_obj = vec.iter().next();
     if let Some(o) = vec_obj {
-        return parse_value(o);
+        return parse_value(o, None);
     } else {
         return "".to_string();
     }
@@ -307,7 +312,7 @@ mod tests {
     #[test]
     fn parse_value_test() {
         let mut value = serde_json::to_value(TestStruct::default()).unwrap();
-        let result = parse_value(&value);
+        let result = parse_value(&value, None);
         assert_eq!("{_char,_f32,_f64,_i16,_i32,_i64,_i8,_u16,_u32,_u8,string}".to_string()
         , result)
     }

@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
+use serde::de::{Deserializer};
 use named_type_derive::*;
 use named_type::NamedType;
 
 #[derive(Serialize, Deserialize, Debug, NamedType, Default)]
 pub struct TestStruct {
+    #[serde(deserialize_with = "deserialize_u64_or_string")]
     #[serde(skip_serializing)]
     pub id: Option<u64>,
     pub string: String, 
@@ -21,6 +23,26 @@ pub struct TestStruct {
     // pub _isize: isize,
     pub _f32 : f32,
     pub _f64 : f64
+}
+
+// Credit : https://noyez.gitlab.io/post/2018-08-28-serilize-this-or-that-into-u64/
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StringOrU64 { U64(u64), Str(String) }
+pub fn deserialize_u64_or_string<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+    where D: Deserializer<'de>
+{
+    match StringOrU64::deserialize(deserializer)? {
+        StringOrU64::U64(v) => { Ok(Some(v)) }
+        StringOrU64::Str(v) => {
+            let res = v.parse::<u64>();
+            if let Ok(r) = res {
+                Ok(Some(r))
+            } else {
+                Err(serde::de::Error::custom("Can't parse MAC address"))
+            }
+        }
+    }
 }
 
 // pub struct TestManyToOne {

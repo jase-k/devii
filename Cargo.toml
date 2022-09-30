@@ -20,6 +20,9 @@ reqwest = {version = "0.11.11", features = ["json"]}
 named_type = "0.2.2"
 named_type_derive = "0.2.2"
 convert_case = "0.6.0"
+struct-field-names-as-array = "0.1.3"
+derive_builder = "0.11.2"
+easy-error = "1.0.0"
 
 [dev-dependencies]
 tokio-test = "0.4.2"

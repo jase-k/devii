@@ -4,9 +4,14 @@ use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use named_type::NamedType;
 use convert_case::{Case, Casing};
-
+use struct_field_names_as_array::FieldNamesAsArray;
+use core::fmt::Debug;
+use std::fmt::Display;
+use serde_json::{Map, Value};
+use easy_error::bail;
 
 pub trait GraphQLQuery{}
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeviiClient {
@@ -47,7 +52,18 @@ impl DeviiClientOptions {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeviiQueryOptions {
-    pub query: String
+    pub query: String,
+    pub variables: Option<FetchOptions>
+}
+
+#[derive(Serialize, Deserialize, Debug, Builder, Default)]
+#[builder(setter(strip_option))]
+#[builder(default)]
+pub struct FetchOptions  {
+    filter: Option<String>,
+    offset: Option<u64>,
+    ordering: Option<Vec<String>>,
+    limit: Option<u64>
 }
 
 impl GraphQLQuery for DeviiQueryOptions{}
@@ -61,24 +77,44 @@ pub struct DeviiQueryInsertOptions<T: Serialize> {
 }
 
 #[derive(Serialize, Debug, Deserialize)]
+pub struct DeviiQueryUpdateOptions<T: Serialize> {
+    pub query: String,
+    // Docs: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "T: Deserialize<'de>"))]
+    pub variables: Update<T>
+}
+
+impl <T: DeserializeOwned + Serialize>GraphQLQuery for DeviiQueryUpdateOptions<T>{}
+
+
+
+#[derive(Serialize, Debug, Deserialize)]
 pub struct Insert<T: Serialize> {
     // Docs: https://serde.rs/attr-bound.html
     #[serde(bound(deserialize = "T: Deserialize<'de>"))]
     input: T
 }
 
+#[derive(Serialize, Debug, Deserialize)]
+pub struct Update<T: Serialize> {
+    // Docs: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "T: Deserialize<'de>"))]
+    input: T,
+    id: u64 
+}
+
 impl <T: DeserializeOwned + Serialize>GraphQLQuery for DeviiQueryInsertOptions<T>{}
+
+pub trait FieldNamesAsArray {
+    fn fields(&self) -> String {
+        stringify!((self::FIELD_NAMES_AS_ARRAY)).to_string()
+    }
+}
 
 
 impl DeviiClient {
     pub async fn connect(options: DeviiClientOptions) -> Result<Self, Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
-        // println!("Connection Result {:?}", client.post(format!("{}/auth", options.base))
-        // .json(&options)
-        // .send()
-        // .await?
-        // .text()
-        // .await?);
 
         let res = client.post(format!("{}/auth", options.base))
             .json(&options)
@@ -102,12 +138,12 @@ impl DeviiClient {
         let execute_result = client.execute(res)
         .await?;
 
-        // println!("Request: {:?}", client.post(&self.routes.query)
-        // .header("Authorization", format!("Bearer {}", self.access_token))
-        // .json(&options)
-        // .send()
-        // .await?
-        // .text().await);
+        println!("Request: {:?}", client.post(&self.routes.query)
+        .header("Authorization", format!("Bearer {}", self.access_token))
+        .json(&options)
+        .send()
+        .await?
+        .text().await);
         
         let result = execute_result    
             .json::<T>()
@@ -145,6 +181,66 @@ impl DeviiClient {
         
         Ok(id_from_insert.id.parse::<u64>().unwrap())
     }
+
+    pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default>(&self, id: u64) -> Result<T, Box<dyn std::error::Error>> {
+        let snake_type = T::short_type_name().to_case(Case::Snake);
+
+        let query_string = format!("query fetch($filter: String){{
+            {} (filter: $filter)
+              {}
+            
+          }}",
+          snake_type,
+          parse_value(&serde_json::to_value(T::default()).unwrap()) 
+        );
+        let fetch_variables = FetchOptionsBuilder::default().filter(format!("id = {}", id)).build().unwrap();
+        
+        let query = DeviiQueryOptions{ 
+            query: query_string,
+            variables: Some(fetch_variables)
+        };
+
+        let mut result = self.query::<DeviiQueryResult<Vec<T>>, DeviiQueryOptions>(query).await?;
+
+        let mut data_result = result.data.remove(&(format!("{}", snake_type))).unwrap();
+        
+        if data_result.len() > 0 {
+            return Ok(data_result.swap_remove(0));
+        } else {
+            bail!("No Type Found with that id")
+        }
+
+    }
+
+    pub async fn update<T: DeserializeOwned + Serialize + NamedType+ Default>(&self, object: T, id: u64) -> Result<T, Box<dyn std::error::Error>>{
+
+        let update = Update {
+            input : object,
+            id: id
+        };
+
+        let snake_type = T::short_type_name().to_case(Case::Snake);
+
+        let query_string = format!("mutation update ($input: {}Input, $id: ID!){{
+            update_{} (id: $id, input: $input)
+            {}
+         }}",
+          snake_type,
+          snake_type,
+          parse_value(&serde_json::to_value(T::default()).unwrap())
+        );
+
+        let query = DeviiQueryUpdateOptions{ 
+            query: query_string,
+            variables: update
+        };
+
+        let mut result = self.query::<DeviiQueryResult<T>, DeviiQueryUpdateOptions<T>>(query).await?;
+
+        let type_from_update = result.data.remove(&(format!("update_{}", snake_type))).unwrap();
+        
+        Ok(type_from_update)
+    }
 }
 
 pub trait DeviiQueryResultType{}
@@ -160,15 +256,61 @@ struct InsertIdResult {
     id: String
 }
 
-// cargo test foo -- --test-threads 3
+fn parse_value(value: &Value) -> String {
+    match value {
+        Value::Object(map) => { return ["{", parse_object(&map).as_str(), "}"].join("") },
+        Value::Array(vec) => { return [ "{", parse_array(&vec).as_str(), "}"].join("") },
+        _ =>  return "".to_string()
+    }
+}
 
+fn parse_object(map: &Map<String, Value>) -> String {
+    let mut iter = map.keys();
+    let mut first = true;
+    let mut map_vals: Vec<String> = vec![];
+
+    while let Some(i) = iter.next() {
+            println!("Map Key: {:?}", i);
+            println!("Map Value {:?}", map.get(i));
+            if let Some(value) = map.get(i) {
+                if !first { map_vals.push(",".to_string())}
+                first = false;
+
+                map_vals.push(i.to_string());
+                map_vals.push(parse_value(value));
+            }
+        }
+    map_vals.join("")
+}
+
+// TODO: Currently #[serde(skip_serializing_if = "example")] is not supported as this may result in not all the vec params being found.
+// Also doesn't work for empty string... 
+fn parse_array(vec: &Vec<Value> ) -> String {
+    let vec_obj = vec.iter().next();
+    if let Some(o) = vec_obj {
+        return parse_value(o);
+    } else {
+        return "".to_string();
+    }
+}
+
+
+// cargo test foo -- --test-threads 3
 #[cfg(test)]
 mod tests {
     use dotenv;
     use crate::devii::DeviiClient;
     use crate::devii::DeviiClientOptions;
     use crate::test_struct::TestStruct;
+    use crate::devii::parse_value;
 
+    #[test]
+    fn parse_value_test() {
+        let mut value = serde_json::to_value(TestStruct::default()).unwrap();
+        let result = parse_value(&value);
+        assert_eq!("{_char,_f32,_f64,_i16,_i32,_i64,_i8,_u16,_u32,_u8,string}".to_string()
+        , result)
+    }
     // May be flaky? 
     #[test]
     fn client_connect() {
@@ -229,6 +371,7 @@ mod tests {
         }
 
     }
+
     #[test]
     fn insert_struct_min_test() {
         let options = DeviiClientOptions {
@@ -249,5 +392,61 @@ mod tests {
             assert!(false)
         }
 
+    }
+
+    #[test]
+    fn fetch_struct_test() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+        
+        let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
+        
+        let insert_result = tokio_test::block_on(client.insert(TestStruct::new()));
+
+        let fetch_result: Result<TestStruct, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(insert_result.unwrap()));
+        
+        if let Ok(record) = fetch_result {
+            assert_eq!(record._char, 'c')
+        } else {
+            println!("{:?}", fetch_result);
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn update_basic_struct_test() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+        
+        let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
+        
+        let testing_struct = TestStruct::new();
+        let mut testing_struct_dup = TestStruct::new();
+
+
+        let insert_result = tokio_test::block_on(client.insert(testing_struct));
+
+        testing_struct_dup.id = Some(insert_result.unwrap());
+
+        let id_to_update = testing_struct_dup.id.clone().unwrap();
+
+        testing_struct_dup.string = "I changed this".to_string();
+
+        let update_result: Result<TestStruct, Box<dyn std::error::Error>> = tokio_test::block_on(client.update(testing_struct_dup, id_to_update));
+        
+        if let Ok(record) = update_result {
+            assert_eq!(record.string, "I changed this".to_string());
+        } else {
+            println!("{:?}", update_result);
+            assert!(false);
+        }
     }
 }

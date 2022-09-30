@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use named_type_derive::*;
 use named_type::NamedType;
 
-#[derive(Serialize, Deserialize, Debug, NamedType)]
+#[derive(Serialize, Deserialize, Debug, NamedType, Default)]
 pub struct TestStruct {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub id: Option<u64>,
     pub string: String, 
     pub _char: char,

@@ -3,6 +3,8 @@ use serde::de::{Deserializer};
 use named_type_derive::*;
 use named_type::NamedType;
 
+use crate::devii::FetchFields;
+
 #[derive(Serialize, Deserialize, Debug, NamedType, Default)]
 pub struct TestStruct {
     #[serde(deserialize_with = "deserialize_u64_or_string")]
@@ -22,33 +24,8 @@ pub struct TestStruct {
     pub _i64: i64,
     // pub _isize: isize,
     pub _f32 : f32,
-    pub _f64 : f64
+    pub _f64 : f64,
 }
-
-// Credit : https://noyez.gitlab.io/post/2018-08-28-serilize-this-or-that-into-u64/
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum StringOrU64 { U64(u64), Str(String) }
-pub fn deserialize_u64_or_string<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
-    where D: Deserializer<'de>
-{
-    match StringOrU64::deserialize(deserializer)? {
-        StringOrU64::U64(v) => { Ok(Some(v)) }
-        StringOrU64::Str(v) => {
-            let res = v.parse::<u64>();
-            if let Ok(r) = res {
-                Ok(Some(r))
-            } else {
-                Err(serde::de::Error::custom("Can't parse MAC address"))
-            }
-        }
-    }
-}
-
-// pub struct TestManyToOne {
-//     test_struct_id: u64,
-//     value: String
-// }
 
 impl TestStruct{
     #[allow(dead_code)]
@@ -83,6 +60,89 @@ impl TestStruct{
             _i64: i64::MIN,
             _f32 : f32::MIN,
             _f64 : f64::MIN
+        }
+    }
+}
+
+impl FetchFields for TestStruct {
+    fn fetch_fields() -> String {
+        format!("{{ id, string, _char, _u8, _u16, _u32, _i8, _i16, _i32, _i64, _f32, _f64 }}")
+    }
+}
+
+
+// Credit : https://noyez.gitlab.io/post/2018-08-28-serilize-this-or-that-into-u64/
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StringOrU64 { U64(u64), Str(String) }
+pub fn deserialize_u64_or_string<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+    where D: Deserializer<'de>
+{
+    match StringOrU64::deserialize(deserializer)? {
+        StringOrU64::U64(v) => { Ok(Some(v)) }
+        StringOrU64::Str(v) => {
+            let res = v.parse::<u64>();
+            if let Ok(r) = res {
+                Ok(Some(r))
+            } else {
+                Err(serde::de::Error::custom("Can't parse id!"))
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, NamedType, Default)]
+pub struct TestOneToMany {
+    #[serde(deserialize_with = "deserialize_u64_or_string")]
+    // #[serde(skip_serializing)]
+    pub id: Option<u64>,
+    pub value: String,
+    pub test_many_to_one_collection : Option<Vec<TestManyToOne>>
+}
+
+impl FetchFields for TestOneToMany {
+    fn fetch_fields() -> String {
+        format!("{{ id, value, test_many_to_one_collection {} }}", TestManyToOne::fetch_fields())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, NamedType, Default)]
+pub struct TestManyToOne {
+    #[serde(deserialize_with = "deserialize_u64_or_string")]
+    // #[serde(skip_serializing)]
+    pub id: Option<u64>,
+    #[serde(deserialize_with = "deserialize_u64_or_string")]
+    pub test_one_to_many_id: Option<u64>,
+    pub test_one_to_many: Option<TestOneToMany>,
+    pub value: String
+}
+
+impl FetchFields for TestManyToOne {
+    fn fetch_fields() -> String {
+        format!("{{ id, value, test_one_to_many_id, test_one_to_many {{ id, value }} }}")
+    }
+}
+
+
+impl TestOneToMany {
+    pub fn new() -> Self {
+        TestOneToMany{
+            id: None, 
+            value: "OneToMany".to_string(),
+            test_many_to_one_collection: Some(vec![
+                TestManyToOne {
+                    id: None,
+                    test_one_to_many_id: None, 
+                    value: "Hello World from Layer 2~".to_string(),
+                    test_one_to_many: None
+                },
+                TestManyToOne {
+                    id: None,
+                    test_one_to_many_id: None, 
+                    value: "I wouldn't have said that...".to_string(),
+                    test_one_to_many: None
+                },
+            ])
         }
     }
 }

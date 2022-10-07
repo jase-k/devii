@@ -1,3 +1,8 @@
+//NOTES: 
+// Don't serialize many to one or one to many relationships as they won't show in 'TInput' devii object'
+// What happens when I want to serialize to JSON to return to web? 
+// serialize if: 
+
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
@@ -12,6 +17,9 @@ use easy_error::bail;
 
 pub trait GraphQLQuery{}
 
+pub trait FetchFields{
+    fn fetch_fields() -> String;
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeviiClient {
@@ -138,12 +146,12 @@ impl DeviiClient {
         let execute_result = client.execute(res)
         .await?;
 
-        println!("Request: {:?}", client.post(&self.routes.query)
-        .header("Authorization", format!("Bearer {}", self.access_token))
-        .json(&options)
-        .send()
-        .await?
-        .text().await);
+        // println!("Request: {:?}", client.post(&self.routes.query)
+        // .header("Authorization", format!("Bearer {}", self.access_token))
+        // .json(&options)
+        // .send()
+        // .await?
+        // .text().await);
         
         let result = execute_result    
             .json::<T>()
@@ -153,10 +161,39 @@ impl DeviiClient {
     }
 
     // returns id -> BigSerial Type needed in Postgres column
-    pub async fn insert<T: DeserializeOwned + Serialize + NamedType>(&self, object: T) -> Result<u64, Box<dyn std::error::Error>> {
+    // FIXME: many to one relationships insert vec of ids
+    pub async fn insert<T: DeserializeOwned + Serialize + NamedType>(&self, object: &T) -> Result<u64, Box<dyn std::error::Error>> {
         // create query. 
+        let insert_object; 
+
+        if let Value::Object(mut map) = serde_json::to_value(object)? {
+            let mut keys  = map.keys();
+            let mut keys_to_remove = vec![];
+            while let Some(key) = keys.next() {
+                if let Some(value) = map.get(key) {
+                    match value {
+                        Value::Null => keys_to_remove.push(key.clone()),
+                        Value::Object(_) => keys_to_remove.push(key.clone()),
+                        Value::Array(arr) => keys_to_remove.push(key.clone()),
+                        _ => continue,
+                    };
+                };
+            };
+            
+            while let Some(key) = keys_to_remove.pop() {
+                map.remove(&key);
+            }
+
+            insert_object = map
+        } else {
+            bail!("Struct not evaluated as an Object!")
+        }
+
+
+        // println!("Input Object: {:?}", insert_object.keys());
+
         let insert = Insert {
-            input : object
+            input : insert_object
         };
 
         let snake_type = T::short_type_name().to_case(Case::Snake);
@@ -175,24 +212,25 @@ impl DeviiClient {
             variables: insert
         };
 
-        let mut result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryInsertOptions<T>>(query).await?;
+        let mut result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryInsertOptions<serde_json::map::Map<String, Value>>>(query).await?;
 
         let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
         
         Ok(id_from_insert.id.parse::<u64>().unwrap())
     }
 
-    pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default>(&self, id: u64) -> Result<T, Box<dyn std::error::Error>> {
+    pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default + FetchFields>(&self, id: u64) -> Result<T, Box<dyn std::error::Error>> {
         let snake_type = T::short_type_name().to_case(Case::Snake);
 
         let query_string = format!("query fetch($filter: String){{
             {} (filter: $filter)
               {}
-            
           }}",
           snake_type,
-          parse_value(&serde_json::to_value(T::default()).unwrap(), Some("id".to_string())) 
+          T::fetch_fields() 
         );
+        println!("{}", query_string);
+
         let fetch_variables = FetchOptionsBuilder::default().filter(format!("id = {}", id)).build().unwrap();
         
         let query = DeviiQueryOptions{ 
@@ -306,8 +344,9 @@ mod tests {
     use dotenv;
     use crate::devii::DeviiClient;
     use crate::devii::DeviiClientOptions;
-    use crate::test_struct::TestStruct;
+    use crate::test_struct::{TestStruct, TestManyToOne, TestOneToMany};
     use crate::devii::parse_value;
+    use crate::devii::FetchFields;
 
     #[test]
     fn parse_value_test() {
@@ -315,6 +354,13 @@ mod tests {
         let result = parse_value(&value, None);
         assert_eq!("{_char,_f32,_f64,_i16,_i32,_i64,_i8,_u16,_u32,_u8,string}".to_string()
         , result)
+    }
+    #[test]
+    fn fetch_fields_test() {
+        let value = TestOneToMany::fetch_fields();
+
+        assert_eq!("{ id, value, test_many_to_one_collection { id, value, test_one_to_many_id, test_one_to_many { id, value } } }".to_string()
+        , value)
     }
     // May be flaky? 
     #[test]
@@ -354,7 +400,40 @@ mod tests {
             assert!(false);
         }
     }
-    
+    #[test]
+    fn insert_struct_test_one_to_many_struct() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+
+        let mut one_to_many_struct = TestOneToMany::new();
+        
+        let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
+        
+        let result = tokio_test::block_on(client.insert(&one_to_many_struct));
+        let layer1_id = result.unwrap();
+        
+        let mut test_many_to_one_collection = one_to_many_struct.test_many_to_one_collection.unwrap();
+        let mut iter = test_many_to_one_collection.iter_mut();
+        // let layer2_results = vec![];
+        while let Some(obj) = iter.next() {
+            obj.test_one_to_many_id = Some(layer1_id);
+            let result2 = tokio_test::block_on(client.insert(obj));
+
+            if let Ok(_) = result2 {
+                assert!(true)
+            } else {
+                println!("{:?}", result2);
+                assert!(false)
+            }
+        }
+
+
+    }
+
     #[test]
     fn insert_struct_test() {
         let options = DeviiClientOptions {
@@ -366,7 +445,7 @@ mod tests {
         
         let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
         
-        let result = tokio_test::block_on(client.insert(TestStruct::new()));
+        let result = tokio_test::block_on(client.insert(&TestStruct::new()));
         
         if let Ok(_) = result {
             assert!(true)
@@ -388,7 +467,7 @@ mod tests {
         
         let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
         
-        let result = tokio_test::block_on(client.insert(TestStruct::new_min()));
+        let result = tokio_test::block_on(client.insert(&TestStruct::new_min()));
         
         if let Ok(_) = result {
             assert!(true)
@@ -410,12 +489,53 @@ mod tests {
         
         let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
         
-        let insert_result = tokio_test::block_on(client.insert(TestStruct::new()));
+        let insert_result = tokio_test::block_on(client.insert(&TestStruct::new()));
 
         let fetch_result: Result<TestStruct, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(insert_result.unwrap()));
         
         if let Ok(record) = fetch_result {
             assert_eq!(record._char, 'c')
+        } else {
+            println!("{:?}", fetch_result);
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn fetch_struct_parent_child_test() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+        
+        let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
+
+        let mut parent_struct = TestOneToMany::new();
+        
+        let insert_result = tokio_test::block_on(client.insert(&parent_struct));
+        
+        let new_parent_id = insert_result.unwrap();
+
+        let mut test_many_to_one_collection = parent_struct.test_many_to_one_collection.unwrap();
+        let mut child_iter = test_many_to_one_collection.iter_mut();
+
+        while let Some(child) = child_iter.next() {
+            child.test_one_to_many_id = Some(new_parent_id);
+            let child_id = tokio_test::block_on(client.insert(child));
+        }
+
+        let fetch_result: Result<TestOneToMany, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(new_parent_id));
+        
+        if let Ok(record) = fetch_result {
+            println!("{:?}", record);
+            if let Some(vec) = record.test_many_to_one_collection {
+                assert_eq!(vec.len(), 2)
+            } else {
+                println!("{:?}", record);
+                assert!(false)
+            }
         } else {
             println!("{:?}", fetch_result);
             assert!(false)
@@ -437,7 +557,7 @@ mod tests {
         let mut testing_struct_dup = TestStruct::new();
 
 
-        let insert_result = tokio_test::block_on(client.insert(testing_struct));
+        let insert_result = tokio_test::block_on(client.insert(&testing_struct));
 
         testing_struct_dup.id = Some(insert_result.unwrap());
 

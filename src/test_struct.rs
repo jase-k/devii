@@ -125,6 +125,7 @@ impl FetchFields for TestManyToOne {
 
 
 impl TestOneToMany {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         TestOneToMany{
             id: None, 

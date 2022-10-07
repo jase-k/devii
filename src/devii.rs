@@ -9,9 +9,7 @@ use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use named_type::NamedType;
 use convert_case::{Case, Casing};
-use struct_field_names_as_array::FieldNamesAsArray;
 use core::fmt::Debug;
-use std::fmt::Display;
 use serde_json::{Map, Value};
 use easy_error::bail;
 
@@ -113,11 +111,6 @@ pub struct Update<T: Serialize> {
 
 impl <T: DeserializeOwned + Serialize>GraphQLQuery for DeviiQueryInsertOptions<T>{}
 
-pub trait FieldNamesAsArray {
-    fn fields(&self) -> String {
-        stringify!((self::FIELD_NAMES_AS_ARRAY)).to_string()
-    }
-}
 
 
 impl DeviiClient {
@@ -145,13 +138,6 @@ impl DeviiClient {
             .build()?;
         let execute_result = client.execute(res)
         .await?;
-
-        // println!("Request: {:?}", client.post(&self.routes.query)
-        // .header("Authorization", format!("Bearer {}", self.access_token))
-        // .json(&options)
-        // .send()
-        // .await?
-        // .text().await);
         
         let result = execute_result    
             .json::<T>()
@@ -174,7 +160,7 @@ impl DeviiClient {
                     match value {
                         Value::Null => keys_to_remove.push(key.clone()),
                         Value::Object(_) => keys_to_remove.push(key.clone()),
-                        Value::Array(arr) => keys_to_remove.push(key.clone()),
+                        Value::Array(_) => keys_to_remove.push(key.clone()),
                         _ => continue,
                     };
                 };
@@ -294,6 +280,8 @@ struct InsertIdResult {
     id: String
 }
 
+
+// May be usuable in the future -> For automatic FetchFields trait
 fn parse_value(value: &Value, additional_fields: Option<String>) -> String {
     let mut additional_field_string = "".to_string(); 
 
@@ -344,13 +332,13 @@ mod tests {
     use dotenv;
     use crate::devii::DeviiClient;
     use crate::devii::DeviiClientOptions;
-    use crate::test_struct::{TestStruct, TestManyToOne, TestOneToMany};
+    use crate::test_struct::{TestStruct, TestOneToMany};
     use crate::devii::parse_value;
     use crate::devii::FetchFields;
 
     #[test]
     fn parse_value_test() {
-        let mut value = serde_json::to_value(TestStruct::default()).unwrap();
+        let value = serde_json::to_value(TestStruct::default()).unwrap();
         let result = parse_value(&value, None);
         assert_eq!("{_char,_f32,_f64,_i16,_i32,_i64,_i8,_u16,_u32,_u8,string}".to_string()
         , result)
@@ -362,7 +350,7 @@ mod tests {
         assert_eq!("{ id, value, test_many_to_one_collection { id, value, test_one_to_many_id, test_one_to_many { id, value } } }".to_string()
         , value)
     }
-    // May be flaky? 
+
     #[test]
     fn client_connect() {
         let options = DeviiClientOptions {
@@ -409,7 +397,7 @@ mod tests {
             base:  dotenv::var("DEVII_BASE_URL").unwrap()
         };
 
-        let mut one_to_many_struct = TestOneToMany::new();
+        let one_to_many_struct = TestOneToMany::new();
         
         let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
         
@@ -512,7 +500,7 @@ mod tests {
         
         let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
 
-        let mut parent_struct = TestOneToMany::new();
+        let parent_struct = TestOneToMany::new();
         
         let insert_result = tokio_test::block_on(client.insert(&parent_struct));
         
@@ -523,7 +511,7 @@ mod tests {
 
         while let Some(child) = child_iter.next() {
             child.test_one_to_many_id = Some(new_parent_id);
-            let child_id = tokio_test::block_on(client.insert(child));
+            let _child_id = tokio_test::block_on(client.insert(child));
         }
 
         let fetch_result: Result<TestOneToMany, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(new_parent_id));

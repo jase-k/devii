@@ -3,7 +3,7 @@ use serde::de::{Deserializer};
 use named_type_derive::*;
 use named_type::NamedType;
 
-use crate::devii::FetchFields;
+use crate::devii::{FetchFields, DeviiTrait};
 
 #[derive(Serialize, Deserialize, Debug, NamedType, Default)]
 pub struct TestStruct {
@@ -67,6 +67,18 @@ impl TestStruct{
 impl FetchFields for TestStruct {
     fn fetch_fields() -> String {
         format!("{{ id, string, _char, _u8, _u16, _u32, _i8, _i16, _i32, _i64, _f32, _f64 }}")
+    }
+}
+
+impl DeviiTrait for TestStruct {
+    fn insert_query(&self, param: String) -> String{
+        format!("create_test_struct (input: ${} ){{ id }}", param)
+    }
+    fn input_type(&self) -> String {
+        "test_structInput".to_string()
+    }
+    fn graphql_inputs(&self) -> serde_json::Value {
+        serde_json::to_value(&self).unwrap()
     }
 }
 

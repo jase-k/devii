@@ -15,6 +15,13 @@ use easy_error::bail;
 
 pub trait GraphQLQuery{}
 
+// TODO: Combine with FetchFields and move to seperate file
+pub trait DeviiTrait{
+    fn insert_query(&self, param: String) -> String;
+    fn input_type(&self) -> String; 
+    fn graphql_inputs(&self) -> Value;
+}
+
 pub trait FetchFields{
     fn fetch_fields() -> String;
 }
@@ -81,6 +88,15 @@ pub struct DeviiQueryInsertOptions<T: Serialize> {
     #[serde(bound(deserialize = "T: Deserialize<'de>"))]
     pub variables: Insert<T>
 }
+
+#[derive(Serialize, Debug, Deserialize)]
+pub struct DeviiQueryBatchInsertOptions {
+    pub query: String,
+    // Docs: https://serde.rs/attr-bound.html
+    // #[serde(bound(deserialize = "T: Deserialize<'de>"))]
+    pub variables: String
+}
+impl GraphQLQuery for DeviiQueryBatchInsertOptions{}
 
 #[derive(Serialize, Debug, Deserialize)]
 pub struct DeviiQueryUpdateOptions<T: Serialize> {
@@ -205,6 +221,41 @@ impl DeviiClient {
         Ok(id_from_insert.id.parse::<u64>().unwrap())
     }
 
+    pub async fn batch_insert<T: DeserializeOwned + Serialize + NamedType + DeviiTrait + Debug>(&self, objects: Vec<&T>) -> Result<String, Box<dyn std::error::Error>> {
+        // create query. 
+        // create Devii Trait
+            // Trait will include insert_query & input_type
+
+        // build inputs object with HashMap u16 Value as below
+        // build query by using foreach:(1_input: input_type) foreach insert_query(1)
+        let query_string = get_query_string_from_vec(&objects);
+
+        let mut insert_objects: HashMap<String, Value> = HashMap::new(); 
+        let mut counter = 0;
+        let mut objects_iter = objects.iter();
+
+        // TODO: make more custom and part of the Devii Trait
+        while let Some(object) = objects_iter.next(){
+            insert_objects.insert(format!("input_{}", counter), object.graphql_inputs());
+            counter = counter + 1;
+        }
+
+
+        // println!("Input Object: {:?}", insert_object.keys());
+
+        let query = DeviiQueryBatchInsertOptions{ 
+            query: query_string,
+            variables: serde_json::to_string(&insert_objects).unwrap()
+        };
+        println!("Query: {:?}", &query);
+
+        let mut result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryBatchInsertOptions>(query).await?;
+
+        // let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
+        println!("Result: {:?}", result);
+        Ok("success".to_string())
+    }
+
     pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default + FetchFields>(&self, id: u64) -> Result<T, Box<dyn std::error::Error>> {
         let snake_type = T::short_type_name().to_case(Case::Snake);
 
@@ -326,6 +377,28 @@ fn parse_array(vec: &Vec<Value> ) -> String {
 }
 
 
+fn get_query_string_from_vec<T: DeviiTrait>(objects: &Vec<&T>) -> String {
+    let mut objects_iter = objects.iter();
+    let mut query_string_inputs = vec![];
+    let mut query_string_definitions = vec![];
+    let mut counter = 0;
+    
+    while let Some(obj) = objects_iter.next() {
+        query_string_inputs.push(format!("${}: {}", format!("input_{}", counter), obj.input_type())); // $1 : testInput
+        // insert_1: create_test (input: $1) { id }
+        query_string_definitions.push(format!("{}: {}", format!("insert_{}", counter), obj.insert_query(format!("input_{}", counter))));
+        counter = counter + 1;
+    }
+    let query_string = format!("mutation insert ({}){{
+        {}
+      }}",
+      query_string_inputs.join(","),
+      query_string_definitions.join(",")
+    );
+
+    query_string
+}
+
 // cargo test foo -- --test-threads 3
 #[cfg(test)]
 mod tests {
@@ -383,7 +456,7 @@ mod tests {
         let client_result = tokio_test::block_on(DeviiClient::connect(options));
 
         if let Ok(res) = client_result {
-            assert_eq!(res.routes.query, format!("{}/jase/query",dotenv::var("DEVII_BASE_URL").unwrap()));
+            assert_eq!(res.routes.query, format!("{}/tenant13/query",dotenv::var("DEVII_BASE_URL").unwrap()));
         } else {
             assert!(false);
         }
@@ -434,6 +507,28 @@ mod tests {
         let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
         
         let result = tokio_test::block_on(client.insert(&TestStruct::new()));
+        
+        if let Ok(_) = result {
+            assert!(true)
+        } else {
+            println!("{:?}", result);
+            assert!(false)
+        }
+
+    }
+    #[test]
+    fn insert_batch_struct_test() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+        
+        let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
+        let test_struct1 = TestStruct::new();
+        let test_struct2 = TestStruct::new_min();
+        let result = tokio_test::block_on(client.batch_insert(vec![&test_struct1, &test_struct2]));
         
         if let Ok(_) = result {
             assert!(true)

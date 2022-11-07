@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde::de::{Deserializer};
 use named_type_derive::*;
 use named_type::NamedType;
+use serde_json::Value;
 
-use crate::devii::{FetchFields, DeviiTrait};
+use crate::devii::{DeviiTrait};
 
 #[derive(Serialize, Deserialize, Debug, NamedType, Default)]
 pub struct TestStruct {
@@ -64,13 +65,10 @@ impl TestStruct{
     }
 }
 
-impl FetchFields for TestStruct {
+impl DeviiTrait for TestStruct {
     fn fetch_fields() -> String {
         format!("{{ id, string, _char, _u8, _u16, _u32, _i8, _i16, _i32, _i64, _f32, _f64 }}")
     }
-}
-
-impl DeviiTrait for TestStruct {
     fn insert_query(&self, param: String) -> String{
         format!("create_test_struct (input: ${} ){{ id }}", param)
     }
@@ -106,15 +104,32 @@ pub fn deserialize_u64_or_string<'de, D>(deserializer: D) -> Result<Option<u64>,
 #[derive(Serialize, Deserialize, Debug, NamedType, Default)]
 pub struct TestOneToMany {
     #[serde(deserialize_with = "deserialize_u64_or_string")]
-    // #[serde(skip_serializing)]
     pub id: Option<u64>,
     pub value: String,
     pub test_many_to_one_collection : Option<Vec<TestManyToOne>>
 }
 
-impl FetchFields for TestOneToMany {
+
+impl DeviiTrait for TestOneToMany {
     fn fetch_fields() -> String {
         format!("{{ id, value, test_many_to_one_collection {} }}", TestManyToOne::fetch_fields())
+    }
+    fn insert_query(&self, param: String) -> String{
+        format!("create_test_one_to_many (input: ${} ){{ id }}", param)
+    }
+    fn input_type(&self) -> String {
+        "test_one_to_manyInput".to_string()
+    }
+    fn graphql_inputs(&self) -> serde_json::Value {
+        let value = serde_json::to_value(&self).unwrap();
+
+        match value {
+            Value::Object(mut map) => {
+                map.remove_entry("test_many_to_one_collection");
+                return Value::Object(map);
+            },
+            _ => panic!("object wasn't a map!"),
+        }
     }
 }
 
@@ -129,12 +144,28 @@ pub struct TestManyToOne {
     pub value: String
 }
 
-impl FetchFields for TestManyToOne {
+impl DeviiTrait for TestManyToOne {
     fn fetch_fields() -> String {
         format!("{{ id, value, test_one_to_many_id, test_one_to_many {{ id, value }} }}")
     }
-}
+    fn insert_query(&self, param: String) -> String{
+        format!("create_test_many_to_one (input: ${} ){{ id }}", param)
+    }
+    fn input_type(&self) -> String {
+        "test_many_to_oneInput".to_string()
+    }
+    fn graphql_inputs(&self) -> serde_json::Value {
+        let value = serde_json::to_value(&self).unwrap();
 
+        match value {
+            Value::Object(mut map) => {
+                map.remove_entry("test_one_to_many");
+                return Value::Object(map);
+            },
+            _ => panic!("object wasn't a map!"),
+        }
+    }
+}
 
 impl TestOneToMany {
     #[allow(dead_code)]

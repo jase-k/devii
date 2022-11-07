@@ -13,16 +13,13 @@ use core::fmt::Debug;
 use serde_json::{Map, Value};
 use easy_error::bail;
 
+
 pub trait GraphQLQuery{}
 
-// TODO: Combine with FetchFields and move to seperate file
 pub trait DeviiTrait{
     fn insert_query(&self, param: String) -> String;
     fn input_type(&self) -> String; 
     fn graphql_inputs(&self) -> Value;
-}
-
-pub trait FetchFields{
     fn fetch_fields() -> String;
 }
 
@@ -245,18 +242,16 @@ impl DeviiClient {
 
         let query = DeviiQueryBatchInsertOptions{ 
             query: query_string,
-            variables: serde_json::to_string(&insert_objects).unwrap()
+            variables: serde_json::to_string(&insert_objects)?
         };
-        println!("Query: {:?}", &query);
 
-        let mut result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryBatchInsertOptions>(query).await?;
+        self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryBatchInsertOptions>(query).await?;
 
         // let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
-        println!("Result: {:?}", result);
         Ok("success".to_string())
     }
 
-    pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default + FetchFields>(&self, id: u64) -> Result<T, Box<dyn std::error::Error>> {
+    pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default + DeviiTrait>(&self, id: u64) -> Result<T, Box<dyn std::error::Error>> {
         let snake_type = T::short_type_name().to_case(Case::Snake);
 
         let query_string = format!("query fetch($filter: String){{
@@ -407,7 +402,7 @@ mod tests {
     use crate::devii::DeviiClientOptions;
     use crate::test_struct::{TestStruct, TestOneToMany};
     use crate::devii::parse_value;
-    use crate::devii::FetchFields;
+    use crate::devii::DeviiTrait;
 
     #[test]
     fn parse_value_test() {

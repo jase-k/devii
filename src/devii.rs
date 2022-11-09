@@ -149,14 +149,21 @@ impl DeviiClient {
             .header("Authorization", format!("Bearer {}", self.access_token))
             .json(&options)
             .build()?;
+
         let execute_result = client.execute(res)
         .await?;
-        
-        let result = execute_result    
-            .json::<T>()
-            .await?;
 
-        Ok(result)
+        let result_text = execute_result.text().await?;
+        // let result_text_clone = result_text.clone();
+        
+        let result = serde_json::from_str(&result_text);    
+            // .json::<T>()
+            // .await;
+        
+        match result {
+            Ok(r) => return Ok(r),
+            Err(e) => bail!("Failed to Parse struct from Result: {:?}, Error: {:?}", result_text, e)
+        }
     }
 
     // returns id -> BigSerial Type needed in Postgres column

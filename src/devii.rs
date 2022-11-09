@@ -141,7 +141,7 @@ impl DeviiClient {
     }
 
     // Type T has to be DeserializedOwned as required by .json<> when deserializing the result into a Rust Struct
-    pub async fn query<T: DeserializeOwned, K : GraphQLQuery + Serialize>(&self, options: K) -> Result<T, Box< dyn std::error::Error>>
+    pub async fn query<T: DeserializeOwned, K : GraphQLQuery + Serialize>(&self, options: &K) -> Result<T, Box< dyn std::error::Error>>
     {
         let client = reqwest::Client::new();
         //Add Auth header
@@ -211,7 +211,7 @@ impl DeviiClient {
             variables: insert
         };
 
-        let mut result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryInsertOptions<serde_json::map::Map<String, Value>>>(query).await?;
+        let mut result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryInsertOptions<serde_json::map::Map<String, Value>>>(&query).await?;
 
         let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
         
@@ -245,7 +245,11 @@ impl DeviiClient {
             variables: serde_json::to_string(&insert_objects)?
         };
 
-        self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryBatchInsertOptions>(query).await?;
+        let query_result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryBatchInsertOptions>(&query).await;
+
+        if let Err(e) = query_result {
+            bail!("Failed Query {:?} Error: {:?}", &query, e);
+        }
 
         // let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
         Ok("success".to_string())
@@ -270,7 +274,7 @@ impl DeviiClient {
             variables: Some(fetch_variables)
         };
 
-        let mut result = self.query::<DeviiQueryResult<Vec<T>>, DeviiQueryOptions>(query).await?;
+        let mut result = self.query::<DeviiQueryResult<Vec<T>>, DeviiQueryOptions>(&query).await?;
 
         let mut data_result = result.data.remove(&(format!("{}", snake_type))).unwrap();
         
@@ -305,7 +309,7 @@ impl DeviiClient {
             variables: update
         };
 
-        let mut result = self.query::<DeviiQueryResult<T>, DeviiQueryUpdateOptions<T>>(query).await?;
+        let mut result = self.query::<DeviiQueryResult<T>, DeviiQueryUpdateOptions<T>>(&query).await?;
 
         let type_from_update = result.data.remove(&(format!("update_{}", snake_type))).unwrap();
         

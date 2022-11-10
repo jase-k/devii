@@ -251,7 +251,7 @@ impl DeviiClient {
             variables: serde_json::to_string(&insert_objects)?
         };
 
-        let query_result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryBatchInsertOptions>(&query).await;
+        let query_result = self.query::<DeviiQueryResult<HashMap<String, String>, DeviiQueryBatchInsertOptions>(&query).await;
 
         if let Err(e) = query_result {
             bail!("Failed Query {:?} Error: {:?}", &query, e);

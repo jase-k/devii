@@ -166,9 +166,8 @@ impl DeviiClient {
         }
     }
 
-    // returns id -> BigSerial Type needed in Postgres column
-    // FIXME: many to one relationships insert vec of ids
-    pub async fn insert<T: DeserializeOwned + Serialize + NamedType>(&self, object: &T) -> Result<u64, Box<dyn std::error::Error>> {
+    // returns UniqueIdentifier as string, string. 
+    pub async fn insert<T: DeserializeOwned + Serialize + NamedType>(&self, object: &T) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
         // create query. 
         let insert_object; 
 
@@ -218,11 +217,11 @@ impl DeviiClient {
             variables: insert
         };
 
-        let mut result = self.query::<DeviiQueryResult<InsertIdResult>, DeviiQueryInsertOptions<serde_json::map::Map<String, Value>>>(&query).await?;
+        let mut result = self.query::<DeviiQueryResult<HashMap<String, String>>, DeviiQueryInsertOptions<serde_json::map::Map<String, Value>>>(&query).await?;
 
         let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
         
-        Ok(id_from_insert.id.parse::<u64>().unwrap())
+        Ok(id_from_insert)
     }
 
     pub async fn batch_insert<T: DeserializeOwned + Serialize + NamedType + DeviiTrait + Debug>(&self, objects: Vec<&T>) -> Result<String, Box<dyn std::error::Error>> {
@@ -333,7 +332,7 @@ pub struct DeviiQueryResult<T> {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct InsertIdResult {
-    // Result comes back from devii as a string but should be a bigserial number
+    // Result comes back from devii as a string but should be a unique identifier
     id: String
 }
 
@@ -481,7 +480,7 @@ mod tests {
         let client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
         
         let result = tokio_test::block_on(client.insert(&one_to_many_struct));
-        let layer1_id = result.unwrap();
+        let layer1_id = result.unwrap().remove("id").unwrap().parse::<u64>().unwrap();
         
         let mut test_many_to_one_collection = one_to_many_struct.test_many_to_one_collection.unwrap();
         let mut iter = test_many_to_one_collection.iter_mut();
@@ -580,7 +579,7 @@ mod tests {
         
         let insert_result = tokio_test::block_on(client.insert(&TestStruct::new()));
 
-        let fetch_result: Result<TestStruct, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(insert_result.unwrap()));
+        let fetch_result: Result<TestStruct, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(insert_result.unwrap().remove("id").unwrap().parse::<u64>().unwrap()));
         
         if let Ok(record) = fetch_result {
             assert_eq!(record._char, 'c')
@@ -605,7 +604,7 @@ mod tests {
         
         let insert_result = tokio_test::block_on(client.insert(&parent_struct));
         
-        let new_parent_id = insert_result.unwrap();
+        let new_parent_id = insert_result.unwrap().remove("id").unwrap().parse::<u64>().unwrap();
 
         let mut test_many_to_one_collection = parent_struct.test_many_to_one_collection.unwrap();
         let mut child_iter = test_many_to_one_collection.iter_mut();
@@ -648,7 +647,7 @@ mod tests {
 
         let insert_result = tokio_test::block_on(client.insert(&testing_struct));
 
-        testing_struct_dup.id = Some(insert_result.unwrap());
+        testing_struct_dup.id = Some(insert_result.unwrap().remove("id").unwrap().parse::<u64>().unwrap());
 
         let id_to_update = testing_struct_dup.id.clone().unwrap();
 

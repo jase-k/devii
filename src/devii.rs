@@ -50,12 +50,12 @@ pub struct DeviiClientOptions {
 }
 
 impl DeviiClientOptions {
-    pub fn new(login: String, password: String, base: String) -> Self {
+    pub fn new(login: String, password: String, base: String, tenantid: u32) -> Self {
         DeviiClientOptions {
-            login: login,
-            tenantid: 13,
-            password: password,
-            base: base
+            login,
+            tenantid,
+            password,
+            base
         }
     }
 }

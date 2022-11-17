@@ -17,10 +17,10 @@ use easy_error::bail;
 pub trait GraphQLQuery{}
 
 pub trait DeviiTrait{
-    fn insert_query(&self, param: String) -> String where Self: Sized;
+    fn insert_query(&self, param: String) -> String;
     fn input_type(&self) -> String; 
     fn graphql_inputs(&self) -> Value;
-    fn fetch_fields() -> String;
+    fn fetch_fields() -> String where Self: Sized;
 }
 
 #[derive(Serialize, Deserialize, Debug)]

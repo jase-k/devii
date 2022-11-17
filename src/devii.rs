@@ -224,7 +224,7 @@ impl DeviiClient {
         Ok(id_from_insert)
     }
 
-    pub async fn batch_insert<T: DeserializeOwned + Serialize + NamedType + DeviiTrait + Debug>(&self, objects: Vec<&T>) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn batch_insert<T: DeserializeOwned + Serialize + NamedType + DeviiTrait + Debug + ?Sized>(&self, objects: Vec<&T>) -> Result<String, Box<dyn std::error::Error>> {
         // create query. 
         // create Devii Trait
             // Trait will include insert_query & input_type
@@ -260,6 +260,7 @@ impl DeviiClient {
         // let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
         Ok("success".to_string())
     }
+
 
     pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default + DeviiTrait>(&self, id: u64) -> Result<T, Box<dyn std::error::Error>> {
         let snake_type = T::short_type_name().to_case(Case::Snake);
@@ -380,7 +381,6 @@ fn parse_array(vec: &Vec<Value> ) -> String {
         return "".to_string();
     }
 }
-
 
 fn get_query_string_from_vec<T: DeviiTrait>(objects: &Vec<&T>) -> String {
     let mut objects_iter = objects.iter();

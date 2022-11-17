@@ -20,7 +20,7 @@ pub trait DeviiTrait{
     fn insert_query(&self, param: String) -> String;
     fn input_type(&self) -> String; 
     fn graphql_inputs(&self) -> Value;
-    fn fetch_fields() -> String;
+    fn fetch_fields(&self) -> String;
 }
 
 #[derive(Serialize, Deserialize, Debug)]

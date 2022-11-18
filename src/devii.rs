@@ -16,7 +16,7 @@ use easy_error::bail;
 
 pub trait GraphQLQuery{}
 
-pub trait DeviiTrait{
+pub trait DeviiTrait: NamedType + Debug + DeserializeOwned + Serialize{
     fn insert_query(&self, param: String) -> String;
     fn input_type(&self) -> String; 
     fn graphql_inputs(&self) -> Value;

@@ -139,6 +139,16 @@ impl DeviiClient {
 
         Ok(res)
     }
+    pub fn connect_sync(options: DeviiClientOptions) -> Result<Self, Box<dyn std::error::Error>> {
+        let client = reqwest::blocking::Client::new();
+
+        let res = client.post(format!("{}/auth", options.base))
+            .json(&options)
+            .send()?
+            .json::<DeviiClient>()?;
+
+        Ok(res)
+    }
 
     // Type T has to be DeserializedOwned as required by .json<> when deserializing the result into a Rust Struct
     pub async fn query<T: DeserializeOwned, K : GraphQLQuery + Serialize>(&self, options: &K) -> Result<T, Box< dyn std::error::Error>>
@@ -165,7 +175,29 @@ impl DeviiClient {
             Err(e) => bail!("Failed to Parse struct from Result: {:?}, Error: {:?}", result_text, e)
         }
     }
+    pub fn query_sync<T: DeserializeOwned, K : GraphQLQuery + Serialize>(&self, options: &K) -> Result<T, Box< dyn std::error::Error>>
+    {
+        let client = reqwest::blocking::Client::new();
+        //Add Auth header
+        let res = client.post(&self.routes.query)
+            .header("Authorization", format!("Bearer {}", self.access_token))
+            .json(&options)
+            .build()?;
 
+        let execute_result = client.execute(res)?;
+
+        let result_text = execute_result.text()?.to_string();
+        // let result_text_clone = result_text.clone();
+        
+        let result = serde_json::from_str(&result_text);    
+            // .json::<T>()
+            // .await;
+        
+        match result {
+            Ok(r) => return Ok(r),
+            Err(e) => bail!("Failed to Parse struct from Result: {:?}, Error: {:?}", result_text, e)
+        }
+    }
     // returns UniqueIdentifier as string, string. 
     pub async fn insert<T: DeserializeOwned + Serialize + NamedType>(&self, object: &T) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
         // create query. 
@@ -252,6 +284,42 @@ impl DeviiClient {
         };
 
         let query_result = self.query::<DeviiQueryResult<HashMap<String, String>>, DeviiQueryBatchInsertOptions>(&query).await;
+
+        if let Err(e) = query_result {
+            bail!("Failed Query {:?} Error: {:?}", &query, e);
+        }
+
+        // let id_from_insert = result.data.remove(&(format!("create_{}", snake_type))).unwrap();
+        Ok("success".to_string())
+    }
+    pub fn batch_insert_sync<T: DeserializeOwned + Serialize + NamedType + DeviiTrait + Debug + ?Sized>(&self, objects: Vec<&T>) -> Result<String, Box<dyn std::error::Error>> {
+        // create query. 
+        // create Devii Trait
+            // Trait will include insert_query & input_type
+
+        // build inputs object with HashMap u16 Value as below
+        // build query by using foreach:(1_input: input_type) foreach insert_query(1)
+        let query_string = get_query_string_from_vec(&objects);
+
+        let mut insert_objects: HashMap<String, Value> = HashMap::new(); 
+        let mut counter = 0;
+        let mut objects_iter = objects.iter();
+
+        // TODO: make more custom and part of the Devii Trait
+        while let Some(object) = objects_iter.next(){
+            insert_objects.insert(format!("input_{}", counter), object.graphql_inputs());
+            counter = counter + 1;
+        }
+
+
+        // println!("Input Object: {:?}", insert_object.keys());
+
+        let query = DeviiQueryBatchInsertOptions{ 
+            query: query_string,
+            variables: serde_json::to_string(&insert_objects)?
+        };
+
+        let query_result = self.query_sync::<DeviiQueryResult<HashMap<String, String>>, DeviiQueryBatchInsertOptions>(&query);
 
         if let Err(e) = query_result {
             bail!("Failed Query {:?} Error: {:?}", &query, e);
@@ -534,6 +602,28 @@ mod tests {
         let test_struct1 = TestStruct::new();
         let test_struct2 = TestStruct::new_min();
         let result = tokio_test::block_on(client.batch_insert(vec![&test_struct1, &test_struct2]));
+        
+        if let Ok(_) = result {
+            assert!(true)
+        } else {
+            println!("{:?}", result);
+            assert!(false)
+        }
+
+    }
+    #[test]
+    fn insert_batch_sync_struct_test() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+        
+        let client = DeviiClient::connect_sync(options).unwrap();
+        let test_struct1 = TestStruct::new();
+        let test_struct2 = TestStruct::new_min();
+        let result = client.batch_insert_sync(vec![&test_struct1, &test_struct2]);
         
         if let Ok(_) = result {
             assert!(true)

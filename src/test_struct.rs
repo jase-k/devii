@@ -78,6 +78,9 @@ impl DeviiTrait for TestStruct {
     fn graphql_inputs(&self) -> serde_json::Value {
         serde_json::to_value(&self).unwrap()
     }
+    fn delete_input(&self) -> String {
+        format!("id: {}", self.id.unwrap())
+    }
 }
 
 
@@ -131,6 +134,9 @@ impl DeviiTrait for TestOneToMany {
             _ => panic!("object wasn't a map!"),
         }
     }
+    fn delete_input(&self) -> String {
+        format!("id: {}", self.id.unwrap())
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, NamedType, Default)]
@@ -164,6 +170,9 @@ impl DeviiTrait for TestManyToOne {
             },
             _ => panic!("object wasn't a map!"),
         }
+    }
+    fn delete_input(&self) -> String {
+        format!("id: {}", self.id.unwrap())
     }
 }
 

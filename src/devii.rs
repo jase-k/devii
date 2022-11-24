@@ -21,6 +21,10 @@ pub trait DeviiTrait: NamedType + Debug + DeserializeOwned + Serialize{
     fn input_type(&self) -> String; 
     fn graphql_inputs(&self) -> Value;
     fn fetch_fields() -> String where Self: Sized;
+    /// Example: 
+    /// id: 7 
+    /// hash: "hashy", index: 8
+    fn delete_input(&self) -> String;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -139,6 +143,7 @@ impl DeviiClient {
 
         Ok(res)
     }
+
     pub fn connect_sync(options: DeviiClientOptions) -> Result<Self, Box<dyn std::error::Error>> {
         let client = reqwest::blocking::Client::new();
 
@@ -227,8 +232,6 @@ impl DeviiClient {
         }
 
 
-        // println!("Input Object: {:?}", insert_object.keys());
-
         let insert = Insert {
             input : insert_object
         };
@@ -276,8 +279,6 @@ impl DeviiClient {
         }
 
 
-        // println!("Input Object: {:?}", insert_object.keys());
-
         let query = DeviiQueryBatchInsertOptions{ 
             query: query_string,
             variables: serde_json::to_string(&insert_objects)?
@@ -311,9 +312,6 @@ impl DeviiClient {
             counter = counter + 1;
         }
 
-
-        // println!("Input Object: {:?}", insert_object.keys());
-
         let query = DeviiQueryBatchInsertOptions{ 
             query: query_string,
             variables: serde_json::to_string(&insert_objects)?
@@ -340,7 +338,6 @@ impl DeviiClient {
           snake_type,
           T::fetch_fields() 
         );
-        println!("{}", query_string);
 
         let fetch_variables = FetchOptionsBuilder::default().filter(format!("id = {}", id)).build().unwrap();
         
@@ -358,6 +355,32 @@ impl DeviiClient {
         } else {
             bail!("No Type Found with that id")
         }
+
+    }
+    pub async fn delete<T: DeserializeOwned + Serialize + NamedType + Default + DeviiTrait>(&self, object: &T) -> Result<(), Box<dyn std::error::Error>> {
+        let snake_type = T::short_type_name().to_case(Case::Snake);
+
+        let query_string = format!("mutation delete{{
+            delete_{} ({}){{
+                __typename
+            }}
+          }}",
+          snake_type,
+          object.delete_input() 
+        );
+
+        let query = DeviiQueryOptions{ 
+            query: query_string,
+            variables: None
+        };
+
+        let mut result = self.query::<DeviiQueryResult<HashMap<String, String>>, DeviiQueryOptions>(&query).await;
+
+        if let Err(e) = result{
+            bail!("Object not deleted: {:?}", e)
+        }
+        
+        Ok(())
 
     }
 
@@ -569,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_struct_test() {
+    fn insert_delete_struct_test() {
         let options = DeviiClientOptions {
             login:  dotenv::var("DEVII_USERNAME").unwrap(),
             password: dotenv::var("DEVII_PASSWORD").unwrap(),
@@ -581,8 +604,19 @@ mod tests {
         
         let result = tokio_test::block_on(client.insert(&TestStruct::new()));
         
-        if let Ok(_) = result {
-            assert!(true)
+        if let Ok(r) = result {
+            println!("successfully inserted: {:?}", r);
+            let mut t_struct = TestStruct::new();
+            t_struct.id = Some(r.get("id").unwrap().parse::<u64>().unwrap());
+            let delete_result = tokio_test::block_on(client.delete(&t_struct));
+            
+            if let Ok(_) = delete_result {
+                assert!(true)
+            } else {
+                println!("{:?}", delete_result);
+                assert!(false)
+            }
+            
         } else {
             println!("{:?}", result);
             assert!(false)

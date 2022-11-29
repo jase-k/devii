@@ -328,7 +328,7 @@ impl DeviiClient {
     }
 
 
-    pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default + DeviiTrait>(&self, filter: String) -> Result<T, Box<dyn std::error::Error>> {
+    pub async fn fetch<T: DeserializeOwned + Serialize + NamedType + Default + DeviiTrait>(&self, filter: String) -> Result<Vec<T>, Box<dyn std::error::Error>> {
         let snake_type = T::short_type_name().to_case(Case::Snake);
 
         let query_string = format!("query fetch($filter: String){{
@@ -350,13 +350,9 @@ impl DeviiClient {
 
         let mut data_result = result.data.remove(&(format!("{}", snake_type))).unwrap();
         
-        if data_result.len() > 0 {
-            return Ok(data_result.swap_remove(0));
-        } else {
-            bail!("No Type Found with that id")
-        }
-
+        Ok(data_result)
     }
+
     pub async fn delete<T: DeserializeOwned + Serialize + NamedType + Default + DeviiTrait>(&self, object: &T) -> Result<(), Box<dyn std::error::Error>> {
         let snake_type = T::short_type_name().to_case(Case::Snake);
 
@@ -703,11 +699,11 @@ mod tests {
         
         let insert_result = tokio_test::block_on(client.insert(&TestStruct::new()));
 
-        let fetch_result: Result<TestStruct, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(
+        let fetch_result: Result<Vec<TestStruct>, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(
             format!("id = {}", insert_result.unwrap().remove("id").unwrap().parse::<u64>().unwrap())));
         
-        if let Ok(record) = fetch_result {
-            assert_eq!(record._char, 'c')
+        if let Ok(mut record) = fetch_result {
+            assert_eq!(record.pop().unwrap()._char, 'c')
         } else {
             println!("{:?}", fetch_result);
             assert!(false)
@@ -739,11 +735,11 @@ mod tests {
             let _child_id = tokio_test::block_on(client.insert(child));
         }
 
-        let fetch_result: Result<TestOneToMany, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(format!("id = {}",new_parent_id)));
+        let fetch_result: Result<Vec<TestOneToMany>, Box<dyn std::error::Error>> = tokio_test::block_on(client.fetch(format!("id = {}",new_parent_id)));
         
-        if let Ok(record) = fetch_result {
+        if let Ok(mut record) = fetch_result {
             println!("{:?}", record);
-            if let Some(vec) = record.test_many_to_one_collection {
+            if let Some(vec) = record.pop().unwrap().test_many_to_one_collection {
                 assert_eq!(vec.len(), 2)
             } else {
                 println!("{:?}", record);

@@ -27,7 +27,7 @@ pub trait DeviiTrait: NamedType + Debug + DeserializeOwned + Serialize{
     fn delete_input(&self) -> String;
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeviiClient {
     access_token: String,
     refresh_token: String,
@@ -35,7 +35,14 @@ pub struct DeviiClient {
     routes: DeviiRoutes
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+impl DeviiClient {
+    fn set_access_token(&mut self, token: String) -> &mut Self {
+        self.access_token = token;
+        self
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct DeviiRoutes {
     base: String,
     query: String,
@@ -129,10 +136,14 @@ pub struct Update<T: Serialize> {
 impl <T: DeserializeOwned + Serialize>GraphQLQuery for DeviiQueryInsertOptions<T>{}
 
 
-
 impl DeviiClient {
     pub async fn connect(options: DeviiClientOptions) -> Result<Self, Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
+
+        println!("{:?}", client.post(format!("{}/auth", options.base))
+        .json(&options)
+        .send()
+        .await?);
 
         let res = client.post(format!("{}/auth", options.base))
             .json(&options)
@@ -177,7 +188,12 @@ impl DeviiClient {
         
         match result {
             Ok(r) => return Ok(r),
-            Err(e) => bail!("Failed to Parse struct from Result: {:?}, Error: {:?}", result_text, e)
+            Err(e) => {
+                if "{\"error\":\"Token expired.\",\"status\":401}".to_string() == result_text.trim() {
+                    println!("Expired Token Found");
+                }
+                bail!("Failed to Parse struct from Result: {:?}, Error: {:?}", result_text, e)
+            }
         }
     }
     pub fn query_sync<T: DeserializeOwned, K : GraphQLQuery + Serialize>(&self, options: &K) -> Result<T, Box< dyn std::error::Error>>
@@ -348,7 +364,7 @@ impl DeviiClient {
 
         let mut result = self.query::<DeviiQueryResult<Vec<T>>, DeviiQueryOptions>(&query).await?;
 
-        let mut data_result = result.data.remove(&(format!("{}", snake_type))).unwrap();
+        let data_result = result.data.remove(&(format!("{}", snake_type))).unwrap();
         
         Ok(data_result)
     }
@@ -780,6 +796,38 @@ mod tests {
             assert_eq!(record.string, "I changed this".to_string());
         } else {
             println!("{:?}", update_result);
+            assert!(false);
+        }
+    }
+    #[test]
+    fn query_expired_token_handle_test() {
+        let options = DeviiClientOptions {
+            login:  dotenv::var("DEVII_USERNAME").unwrap(),
+            password: dotenv::var("DEVII_PASSWORD").unwrap(),
+            tenantid:  dotenv::var("DEVII_TENANT_ID").unwrap().parse::<u32>().unwrap(),
+            base:  dotenv::var("DEVII_BASE_URL").unwrap()
+        };
+            
+        let expired_token =  dotenv::var("DEVII_EXPIRED_TOKEN").unwrap();
+
+        let mut client = tokio_test::block_on(DeviiClient::connect(options)).unwrap();
+
+        client.set_access_token(expired_token);
+        
+        let testing_struct = TestStruct::new();
+        let testing_struct_dup = TestStruct::new();
+
+
+        let insert_result = tokio_test::block_on(client.insert(&testing_struct));
+        
+        if let Err(e) = insert_result {
+            if e.to_string().contains("Token expired.") {
+                assert!(true)
+            } else {
+                assert!(false);
+            }
+        } else {
+            println!("{:?}", insert_result);
             assert!(false);
         }
     }

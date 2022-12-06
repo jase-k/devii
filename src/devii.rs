@@ -190,7 +190,7 @@ impl DeviiClient {
             Ok(r) => return Ok(r),
             Err(e) => {
                 if "{\"error\":\"Token expired.\",\"status\":401}".to_string() == result_text.trim() {
-                    println!("Expired Token Found");
+                    bail!("Query Failed: {:?}", e);
                 }
                 bail!("Failed to Parse struct from Result: {:?}, Error: {:?}", result_text, e)
             }

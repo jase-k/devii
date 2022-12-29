@@ -368,6 +368,30 @@ impl DeviiClient {
         
         Ok(data_result)
     }
+    pub fn fetch_sync<T: DeserializeOwned + Serialize + NamedType + Default + DeviiTrait>(&self, filter: String) -> Result<Vec<T>, Box<dyn std::error::Error>> {
+        let snake_type = T::short_type_name().to_case(Case::Snake);
+
+        let query_string = format!("query fetch($filter: String){{
+            {} (filter: $filter)
+              {}
+          }}",
+          snake_type,
+          T::fetch_fields() 
+        );
+
+        let fetch_variables = FetchOptionsBuilder::default().filter(filter).build().unwrap();
+        
+        let query = DeviiQueryOptions{ 
+            query: query_string,
+            variables: Some(fetch_variables)
+        };
+
+        let mut result = self.query_sync::<DeviiQueryResult<Vec<T>>, DeviiQueryOptions>(&query)?;
+
+        let data_result = result.data.remove(&(format!("{}", snake_type))).unwrap();
+        
+        Ok(data_result)
+    }
 
     pub async fn delete<T: DeserializeOwned + Serialize + NamedType + Default + DeviiTrait>(&self, object: &T) -> Result<(), Box<dyn std::error::Error>> {
         let snake_type = T::short_type_name().to_case(Case::Snake);

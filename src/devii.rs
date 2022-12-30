@@ -514,8 +514,8 @@ fn parse_object(map: &Map<String, Value>) -> String {
     let mut map_vals: Vec<String> = vec![];
 
     while let Some(i) = iter.next() {
-            println!("Map Key: {:?}", i);
-            println!("Map Value {:?}", map.get(i));
+            // println!("Map Key: {:?}", i);
+            // println!("Map Value {:?}", map.get(i));
             if let Some(value) = map.get(i) {
                 if !first { map_vals.push(",".to_string())}
                 first = false;

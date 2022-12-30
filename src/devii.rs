@@ -449,7 +449,7 @@ impl DeviiClient {
         
         Ok(type_from_update)
     }
-    pub async fn update_sync<T: DeserializeOwned + Serialize + NamedType+ Default>(&self, object: T, id: u64) -> Result<T, Box<dyn std::error::Error>>{
+    pub fn update_sync<T: DeserializeOwned + Serialize + NamedType+ Default>(&self, object: T, id: u64) -> Result<T, Box<dyn std::error::Error>>{
 
         let update = Update {
             input : object,

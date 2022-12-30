@@ -449,6 +449,35 @@ impl DeviiClient {
         
         Ok(type_from_update)
     }
+    pub async fn update_sync<T: DeserializeOwned + Serialize + NamedType+ Default>(&self, object: T, id: u64) -> Result<T, Box<dyn std::error::Error>>{
+
+        let update = Update {
+            input : object,
+            id: id
+        };
+
+        let snake_type = T::short_type_name().to_case(Case::Snake);
+
+        let query_string = format!("mutation update ($input: {}Input, $id: ID!){{
+            update_{} (id: $id, input: $input)
+            {}
+         }}",
+          snake_type,
+          snake_type,
+          parse_value(&serde_json::to_value(T::default()).unwrap(), Some("id".to_string()))
+        );
+
+        let query = DeviiQueryUpdateOptions{ 
+            query: query_string,
+            variables: update
+        };
+
+        let mut result = self.query_sync::<DeviiQueryResult<T>, DeviiQueryUpdateOptions<T>>(&query)?;
+
+        let type_from_update = result.data.remove(&(format!("update_{}", snake_type))).unwrap();
+        
+        Ok(type_from_update)
+    }
 }
 
 pub trait DeviiQueryResultType{}
